@@ -27,24 +27,20 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-
 #include <opencv2/core/core.hpp>
 #include "ExposureImage.h"
 #include "Eigen/Core"
 
-
 class UndistorterFOV
 {
 public:
-
-	UndistorterFOV(const char* configFileName);
+	UndistorterFOV(const char *configFileName);
 	UndistorterFOV();
 	~UndistorterFOV();
 
-
-	template<typename T>
-	void undistort(const T* input, float* output, int nPixIn, int nPixOut) const;
-	void distortCoordinates(float* in_x, float* in_y, int n);
+	template <typename T>
+	void undistort(const T *input, float *output, int nPixIn, int nPixOut) const;
+	void distortCoordinates(float *in_x, float *in_y, int n);
 
 	inline Eigen::Matrix3f getK_rect() const
 	{
@@ -76,11 +72,12 @@ public:
 	{
 		return Eigen::Vector2i(out_width, out_height);
 	}
-	
+
 	bool isValid() const
 	{
 		return valid;
 	}
+
 private:
 	Eigen::Matrix3f Krect;
 	Eigen::Matrix3f Korg;
@@ -89,8 +86,8 @@ private:
 	int out_width, out_height;
 	int in_width, in_height;
 
-	float* remapX;
-	float* remapY;
+	float *remapX;
+	float *remapY;
 
 	bool valid;
 };
