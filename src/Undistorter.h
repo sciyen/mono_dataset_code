@@ -106,3 +106,11 @@ public:
 	~UndistorterFOV();
 	void distortCoordinates(float *in_x, float *in_y, int n);
 };
+
+class UndistortRationalModel : public Undistorter
+{
+public:
+	UndistortRationalModel(const char *configFileName);
+	~UndistortRationalModel();
+	void distortCoordinates(float *in_x, float *in_y, int n);
+};

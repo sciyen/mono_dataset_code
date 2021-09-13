@@ -61,7 +61,26 @@ void Undistorter::readDataFromFile(const char *configFileName, int nparam)
 	std::getline(infile, l4);
 
 	// l1 & l2
-	if (nparam == 5)
+	if (nparam == 12)
+	{
+		extra_params = new float[nparam - 4];
+		if (std::sscanf(l1.c_str(), "%f %f %f %f %f %f %f %f %f %f %f %f", &inputCalibration[0], &inputCalibration[1], &inputCalibration[2], &inputCalibration[3],
+						&extra_params[0], &extra_params[1], &extra_params[2], &extra_params[3], &extra_params[4], &extra_params[5], &extra_params[6], &extra_params[7]) == 12 &&
+			std::sscanf(l2.c_str(), "%d %d", &in_width, &in_height) == 2)
+		{
+			printf("Input resolution: %d %d\n", in_width, in_height);
+			printf("Input Calibration (fx fy cx cy): %f %f %f %f %f %f %f %f %f %f %f %f\n",
+				   in_width * inputCalibration[0], in_height * inputCalibration[1], in_width * inputCalibration[2], in_height * inputCalibration[3],
+				   extra_params[0], extra_params[1], extra_params[2], extra_params[3], extra_params[4], extra_params[5], extra_params[6], extra_params[7]);
+		}
+		else
+		{
+			printf("Failed to read camera calibration (invalid format?)\nCalibration file: %s\n", configFileName);
+			return;
+		}
+	}
+
+	else if (nparam == 5)
 	{
 		if (std::sscanf(l1.c_str(), "%f %f %f %f %f", &inputCalibration[0], &inputCalibration[1], &inputCalibration[2], &inputCalibration[3], &inputCalibration[4]) == 5 &&
 			std::sscanf(l2.c_str(), "%d %d", &in_width, &in_height) == 2)
@@ -128,21 +147,23 @@ void Undistorter::readDataFromFile(const char *configFileName, int nparam)
 	float d2t = 2.0f * tan(dist / 2.0f);
 
 	// current camera parameters
-	float fx = inputCalibration[0] * in_width;
-	float fy = inputCalibration[1] * in_height;
-	float cx = inputCalibration[2] * in_width - 0.5;
-	float cy = inputCalibration[3] * in_height - 0.5;
+	bool scaling = (inputCalibration[0] > 1) && (inputCalibration[1] > 1);
+	float fx = scaling ? inputCalibration[0] : (inputCalibration[0] * in_width);
+	float fy = scaling ? inputCalibration[1] : (inputCalibration[1] * in_height);
+	float cx = scaling ? inputCalibration[2] : (inputCalibration[2] * in_width - 0.5);
+	float cy = scaling ? inputCalibration[3] : (inputCalibration[3] * in_height - 0.5);
 
 	// output camera parameters
 	float ofx, ofy, ocx, ocy;
 
 	// find new camera matrix for "crop" and "full"
+	// TODO: inputCalibration[4] is meaningless when not FOV is not used
 	if (inputCalibration[4] == 0)
 	{
-		ofx = inputCalibration[0] * out_width;
-		ofy = inputCalibration[1] * out_height;
-		ocx = (inputCalibration[2] * out_width) - 0.5;
-		ocy = (inputCalibration[3] * out_height) - 0.5;
+		ofx = scaling ? inputCalibration[0] : (inputCalibration[0] * out_width);
+		ofy = scaling ? inputCalibration[1] : (inputCalibration[1] * out_height);
+		ocx = scaling ? inputCalibration[2] : ((inputCalibration[2] * out_width) - 0.5);
+		ocy = scaling ? inputCalibration[3] : ((inputCalibration[3] * out_height) - 0.5);
 	}
 	else if (outputCalibration[0] == -1) // "crop"
 	{
@@ -201,10 +222,11 @@ void Undistorter::readDataFromFile(const char *configFileName, int nparam)
 	}
 	else
 	{
-		ofx = outputCalibration[0] * out_width;
-		ofy = outputCalibration[1] * out_height;
-		ocx = outputCalibration[2] * out_width - 0.5;
-		ocy = outputCalibration[3] * out_height - 0.5;
+		bool out_scaling = ((outputCalibration[0] > 1) && (outputCalibration[1] > 1));
+		ofx = out_scaling ? outputCalibration[0] : (outputCalibration[0] * out_width);
+		ofy = out_scaling ? outputCalibration[1] : (outputCalibration[1] * out_height);
+		ocx = out_scaling ? outputCalibration[2] : (outputCalibration[2] * out_width - 0.5);
+		ocy = out_scaling ? outputCalibration[3] : (outputCalibration[3] * out_height - 0.5);
 	}
 
 	outputCalibration[0] = ofx / out_width;
@@ -343,22 +365,31 @@ Undistorter *Undistorter::getUndistorterForFile(std::string configFilename)
 	Undistorter *u;
 
 	// for backwards-compatibility: Use Rational model for 11 parameters.
-	if (std::sscanf(l1.c_str(), "%f %f %f %f %f",
-					&ic[0], &ic[1], &ic[2], &ic[3],
-					&ic[4]) == 5)
+	if (std::sscanf(l1.c_str(), "%f %f %f %f %f %f %f %f %f %f %f %f",
+					&ic[0], &ic[1], &ic[2], &ic[3], &ic[4], &ic[5],
+					&ic[6], &ic[7], &ic[8], &ic[9], &ic[10], &ic[11]) == 12)
+	{
+		u = new UndistortRationalModel(configFilename.c_str());
+	}
+
+	else if (std::sscanf(l1.c_str(), "%f %f %f %f %f",
+						 &ic[0], &ic[1], &ic[2], &ic[3],
+						 &ic[4]) == 5)
 	{
 		u = new UndistorterFOV(configFilename.c_str());
-		if (!u->isValid())
-		{
-			delete u;
-			return 0;
-		}
 	}
 
 	else
 	{
 		printf("could not read calib file! exit.");
 		exit(1);
+	}
+
+	if (!u->isValid())
+	{
+		delete u;
+		printf("Invalid Undistorter! Can not create distorter from calibration file! \n");
+		return 0;
 	}
 
 	return u;
@@ -410,5 +441,66 @@ void UndistorterFOV::distortCoordinates(float *in_x, float *in_y, int n)
 
 		in_x[i] = ix;
 		in_y[i] = iy;
+	}
+}
+
+UndistortRationalModel::UndistortRationalModel(const char *configFileName)
+{
+	readDataFromFile(configFileName, 12);
+}
+
+UndistortRationalModel::~UndistortRationalModel()
+{
+	delete[] extra_params;
+}
+
+void UndistortRationalModel::distortCoordinates(float *in_x, float *in_y, int n)
+{
+	if (!valid)
+	{
+		printf("ERROR: invalid Undistorter!\n");
+		return;
+	}
+
+	// current camera parameters
+	// The undistort model referred from openCV document
+	// https://docs.opencv.org/master/d9/d0c/group__calib3d.html#ga7dfb72c9cf9780a347fbe3d1c47e5d5a
+	float fx = inputCalibration[0];
+	float fy = inputCalibration[1];
+	float cx = inputCalibration[2];
+	float cy = inputCalibration[3];
+	float k1 = extra_params[0];
+	float k2 = extra_params[1];
+	float p1 = extra_params[2];
+	float p2 = extra_params[3];
+	float k3 = extra_params[4];
+	float k4 = extra_params[5];
+	float k5 = extra_params[6];
+	float k6 = extra_params[7];
+
+	float ofx = outputCalibration[0] * out_width;
+	float ofy = outputCalibration[1] * out_height;
+	float ocx = outputCalibration[2] * out_width - 0.5f;
+	float ocy = outputCalibration[3] * out_height - 0.5f;
+
+	for (int i = 0; i < n; i++)
+	{
+		float x = in_x[i];
+		float y = in_y[i];
+
+		// EQUI
+		float ix = (x - ocx) / ofx;
+		float iy = (y - ocy) / ofy;
+		float r2 = ix * ix + iy * iy;
+		float r4 = r2 * r2;
+		float r6 = r2 * r4;
+		float r8 = r4 * r4;
+		float rd = (1.0f + k1 * r2 + k2 * r4 + k3 * r6) / (1.0f + k4 * r2 + k5 * r4 + k6 * r6);
+		//float scaling = (r > 1e-8) ? thetad / r : 1.0;
+		float ox = fx * ix * rd + cx;
+		float oy = fy * iy * rd + cy;
+
+		in_x[i] = ox;
+		in_y[i] = oy;
 	}
 }
