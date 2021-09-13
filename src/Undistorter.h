@@ -31,16 +31,15 @@
 #include "ExposureImage.h"
 #include "Eigen/Core"
 
-class UndistorterFOV
+class Undistorter
 {
 public:
-	UndistorterFOV(const char *configFileName);
-	UndistorterFOV();
-	~UndistorterFOV();
+	Undistorter();
+	~Undistorter();
 
 	template <typename T>
 	void undistort(const T *input, float *output, int nPixIn, int nPixOut) const;
-	void distortCoordinates(float *in_x, float *in_y, int n);
+	virtual void distortCoordinates(float *in_x, float *in_y, int n) = 0;
 
 	inline Eigen::Matrix3f getK_rect() const
 	{
@@ -78,7 +77,11 @@ public:
 		return valid;
 	}
 
-private:
+	static class Undistorter *getUndistorterForFile(std::string configFilename);
+
+	void readDataFromFile(const char *configFileName, int nparam);
+
+protected:
 	Eigen::Matrix3f Krect;
 	Eigen::Matrix3f Korg;
 	float inputCalibration[5];
@@ -90,4 +93,16 @@ private:
 	float *remapY;
 
 	bool valid;
+
+	float *extra_params;
+
+private:
+};
+
+class UndistorterFOV : public Undistorter
+{
+public:
+	UndistorterFOV(const char *configFileName);
+	~UndistorterFOV();
+	void distortCoordinates(float *in_x, float *in_y, int n);
 };

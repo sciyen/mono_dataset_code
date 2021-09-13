@@ -27,7 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "FOVUndistorter.h"
+#include "Undistorter.h"
 
 #include <sstream>
 #include <fstream>
@@ -37,19 +37,15 @@
 #include <opencv2/opencv.hpp>
 #include <Eigen/Core>
 
-UndistorterFOV::UndistorterFOV()
+Undistorter::Undistorter()
 {
 	remapX = nullptr;
 	remapY = nullptr;
 	valid = false;
 }
 
-UndistorterFOV::UndistorterFOV(const char *configFileName)
+void Undistorter::readDataFromFile(const char *configFileName, int nparam)
 {
-	remapX = nullptr;
-	remapY = nullptr;
-	valid = false;
-
 	// read parameters
 	std::ifstream infile(configFileName);
 	if (!infile.good())
@@ -65,16 +61,24 @@ UndistorterFOV::UndistorterFOV(const char *configFileName)
 	std::getline(infile, l4);
 
 	// l1 & l2
-	if (std::sscanf(l1.c_str(), "%f %f %f %f %f", &inputCalibration[0], &inputCalibration[1], &inputCalibration[2], &inputCalibration[3], &inputCalibration[4]) == 5 &&
-		std::sscanf(l2.c_str(), "%d %d", &in_width, &in_height) == 2)
+	if (nparam == 5)
 	{
-		printf("Input resolution: %d %d\n", in_width, in_height);
-		printf("Input Calibration (fx fy cx cy): %f %f %f %f %f\n",
-			   in_width * inputCalibration[0], in_height * inputCalibration[1], in_width * inputCalibration[2], in_height * inputCalibration[3], inputCalibration[4]);
+		if (std::sscanf(l1.c_str(), "%f %f %f %f %f", &inputCalibration[0], &inputCalibration[1], &inputCalibration[2], &inputCalibration[3], &inputCalibration[4]) == 5 &&
+			std::sscanf(l2.c_str(), "%d %d", &in_width, &in_height) == 2)
+		{
+			printf("Input resolution: %d %d\n", in_width, in_height);
+			printf("Input Calibration (fx fy cx cy): %f %f %f %f %f\n",
+				   in_width * inputCalibration[0], in_height * inputCalibration[1], in_width * inputCalibration[2], in_height * inputCalibration[3], inputCalibration[4]);
+		}
+		else
+		{
+			printf("Failed to read camera calibration (invalid format?)\nCalibration file: %s\n", configFileName);
+			return;
+		}
 	}
 	else
 	{
-		printf("Failed to read camera calibration (invalid format?)\nCalibration file: %s\n", configFileName);
+		printf("Fail to recognize calibration file fotmat! See the contructor of the undistorter.");
 		return;
 	}
 
@@ -258,7 +262,7 @@ UndistorterFOV::UndistorterFOV(const char *configFileName)
 	Korg(1, 2) = inputCalibration[3] * in_height - 0.5;
 }
 
-UndistorterFOV::~UndistorterFOV()
+Undistorter::~Undistorter()
 {
 	if (remapX != 0)
 		delete[] remapX;
@@ -266,48 +270,8 @@ UndistorterFOV::~UndistorterFOV()
 		delete[] remapY;
 }
 
-void UndistorterFOV::distortCoordinates(float *in_x, float *in_y, int n)
-{
-	if (!valid)
-	{
-		printf("ERROR: invalid UndistorterFOV!\n");
-		return;
-	}
-
-	float dist = inputCalibration[4];
-	float d2t = 2.0f * tan(dist / 2.0f);
-
-	// current camera parameters
-	float fx = inputCalibration[0] * in_width;
-	float fy = inputCalibration[1] * in_height;
-	float cx = inputCalibration[2] * in_width - 0.5;
-	float cy = inputCalibration[3] * in_height - 0.5;
-
-	float ofx = outputCalibration[0] * out_width;
-	float ofy = outputCalibration[1] * out_height;
-	float ocx = outputCalibration[2] * out_width - 0.5f;
-	float ocy = outputCalibration[3] * out_height - 0.5f;
-
-	for (int i = 0; i < n; i++)
-	{
-		float x = in_x[i];
-		float y = in_y[i];
-		float ix = (x - ocx) / ofx;
-		float iy = (y - ocy) / ofy;
-
-		float r = sqrtf(ix * ix + iy * iy);
-		float fac = (r == 0 || dist == 0) ? 1 : atanf(r * d2t) / (dist * r);
-
-		ix = fx * fac * ix + cx;
-		iy = fy * fac * iy + cy;
-
-		in_x[i] = ix;
-		in_y[i] = iy;
-	}
-}
-
 template <typename T>
-void UndistorterFOV::undistort(const T *input, float *output, int nPixIn, int nPixOut) const
+void Undistorter::undistort(const T *input, float *output, int nPixIn, int nPixOut) const
 {
 	if (!valid)
 		return;
@@ -350,5 +314,101 @@ void UndistorterFOV::undistort(const T *input, float *output, int nPixIn, int nP
 		}
 	}
 }
-template void UndistorterFOV::undistort<float>(const float *input, float *output, int nPixIn, int nPixOut) const;
-template void UndistorterFOV::undistort<unsigned char>(const unsigned char *input, float *output, int nPixIn, int nPixOut) const;
+template void Undistorter::undistort<float>(const float *input, float *output, int nPixIn, int nPixOut) const;
+template void Undistorter::undistort<unsigned char>(const unsigned char *input, float *output, int nPixIn, int nPixOut) const;
+
+/* This function is mainly imgrated from dso which can be found here 
+ * https://github.com/JakobEngel/dso
+*/
+Undistorter *Undistorter::getUndistorterForFile(std::string configFilename)
+{
+	printf("Reading Calibration from file %s", configFilename.c_str());
+
+	std::ifstream f(configFilename.c_str());
+	if (!f.good())
+	{
+		f.close();
+		printf(" ... not found. Cannot operate without calibration, shutting down.\n");
+		f.close();
+		return 0;
+	}
+
+	printf(" ... found!\n");
+	std::string l1;
+	std::getline(f, l1);
+	f.close();
+
+	float ic[12];
+
+	Undistorter *u;
+
+	// for backwards-compatibility: Use Rational model for 11 parameters.
+	if (std::sscanf(l1.c_str(), "%f %f %f %f %f",
+					&ic[0], &ic[1], &ic[2], &ic[3],
+					&ic[4]) == 5)
+	{
+		u = new UndistorterFOV(configFilename.c_str());
+		if (!u->isValid())
+		{
+			delete u;
+			return 0;
+		}
+	}
+
+	else
+	{
+		printf("could not read calib file! exit.");
+		exit(1);
+	}
+
+	return u;
+}
+
+UndistorterFOV::UndistorterFOV(const char *configFileName) : Undistorter()
+{
+	readDataFromFile(configFileName, 5);
+}
+
+UndistorterFOV::~UndistorterFOV()
+{
+}
+
+void UndistorterFOV::distortCoordinates(float *in_x, float *in_y, int n)
+{
+	if (!valid)
+	{
+		printf("ERROR: invalid Undistorter!\n");
+		return;
+	}
+
+	float dist = inputCalibration[4];
+	float d2t = 2.0f * tan(dist / 2.0f);
+
+	// current camera parameters
+	float fx = inputCalibration[0] * in_width;
+	float fy = inputCalibration[1] * in_height;
+	float cx = inputCalibration[2] * in_width - 0.5;
+	float cy = inputCalibration[3] * in_height - 0.5;
+
+	float ofx = outputCalibration[0] * out_width;
+	float ofy = outputCalibration[1] * out_height;
+	float ocx = outputCalibration[2] * out_width - 0.5f;
+	float ocy = outputCalibration[3] * out_height - 0.5f;
+
+	for (int i = 0; i < n; i++)
+	{
+		float x = in_x[i];
+		float y = in_y[i];
+		float ix = (x - ocx) / ofx;
+		float iy = (y - ocy) / ofy;
+
+		float r = sqrtf(ix * ix + iy * iy);
+		float fac = (r == 0 || dist == 0) ? 1 : atanf(r * d2t) / (dist * r);
+
+		ix = fx * fac * ix + cx;
+		iy = fy * fac * iy + cy;
+
+		in_x[i] = ix;
+		in_y[i] = iy;
+	}
+}
